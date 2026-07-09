@@ -1,6 +1,137 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
+Azure TTS 26 字母生成 - GitHub Actions 版
+===========================================
+
+跑 6 个顶级 Azure Neural Voice（与 Edge TTS 同款引擎，输出 24kHz WAV）：
+
+  Christopher  ⭐⭐⭐⭐⭐ 新闻男主播
+  Jenny        ⭐⭐⭐⭐⭐ 专业女声
+  Guy          ⭐⭐⭐⭐   沉稳男声
+  Libby        ⭐⭐⭐⭐   英式女声
+  Aria         ⭐⭐⭐⭐   清晰女声
+  Andrew       ⭐⭐⭐⭐   播音男声
+
+输出 wav 到 ./output/letter_azure_<voice>/letter_<X>.wav，
+最后通过 upload-artifact 打包下载到本地。
+
+环境变量：
+    AZURE_TTS_KEY  - 必填，GitHub Secret 配置
+"""
+
+import os
+import requests
+
+# ============================ CONFIG ============================
+LETTERS = list("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+
+VOICES = [
+    ("Christopher", "en-US-ChristopherNeural", "letter_azure_christopher"),
+    ("Jenny",       "en-US-JennyNeural",        "letter_azure_jenny"),
+    ("Guy",         "en-US-GuyNeural",          "letter_azure_guy"),
+    ("Libby",       "en-US-LibbyNeural",        "letter_azure_libby"),
+    ("Aria",        "en-US-AriaNeural",         "letter_azure_aria"),
+    ("Andrew",      "en-US-AndrewNeural",       "letter_azure_andrew"),
+]
+
+OUT_BASE = "output"
+FORMAT = "riff-24khz-16bit-mono-pcm"  # 24kHz WAV
+
+# 常见 Azure region，自动探测可用 region
+REGIONS = [
+    "eastasia", "southeastasia", "eastus", "eastus2",
+    "westus", "westus2", "northeurope", "westeurope",
+    "chinanorth2", "chinaeast2",
+]
+# =================================================================
+
+
+def _find_region(key: str) -> tuple[str | None, str | None]:
+    """遍历 regions，找到可用的 Azure Speech endpoint"""
+    for region in REGIONS:
+        url = f"https://{region}.tts.speech.microsoft.com/cognitiveservices/v1"
+        ssml = "<speak version='1.0' xml:lang='en-US'><voice name='en-US-JennyNeural'>A</voice></speak>"
+        headers = {
+            "Ocp-Apim-Subscription-Key": key,
+            "Content-Type": "application/ssml+xml",
+            "X-Microsoft-OutputFormat": FORMAT,
+        }
+        try:
+            r = requests.post(url, headers=headers, data=ssml.encode("utf-8"), timeout=10)
+            if r.status_code == 200 and len(r.content) > 500:
+                print(f"  Region OK: {region}")
+                return region, url
+        except Exception:
+            pass
+    return None, None
+
+
+def azure_tts(letter: str, voice_name: str, region_url: str, key: str) -> bytes:
+    ssml = f"<speak version='1.0' xml:lang='en-US'><voice name='{voice_name}'>{letter}</voice></speak>"
+    headers = {
+        "Ocp-Apim-Subscription-Key": key,
+        "Content-Type": "application/ssml+xml",
+        "X-Microsoft-OutputFormat": FORMAT,
+    }
+    r = requests.post(region_url, headers=headers, data=ssml.encode("utf-8"), timeout=30)
+    if r.status_code != 200:
+        raise RuntimeError(f"HTTP {r.status_code}: {r.text[:200]}")
+    if len(r.content) < 500:
+        raise RuntimeError(f"Empty audio ({len(r.content)} bytes)")
+    return r.content
+
+
+def main() -> None:
+    key = os.environ.get("AZURE_TTS_KEY", "")
+    if not key:
+        raise SystemExit("ERROR: AZURE_TTS_KEY env var not set")
+
+    print("=" * 60)
+    print("Azure TTS - 26 字母 × 6 顶级 Neural Voice")
+    print(f"  Key: {key[:8]}...{key[-4:]}")
+    print(f"  Voices: {[v for v, _, _ in VOICES]}")
+    print(f"  Total: {len(LETTERS) * len(VOICES)} wav")
+    print("=" * 60)
+
+    print("\n[*] Detecting Azure region...")
+    region, region_url = _find_region(key)
+    if not region:
+        raise SystemExit("ERROR: No working Azure region found. Check your AZURE_TTS_KEY and network.")
+    print(f"    Using region: {region}")
+
+    total_ok = total_fail = 0
+    for sname, vname, dir_name in VOICES:
+        out_dir = os.path.join(OUT_BASE, dir_name)
+        os.makedirs(out_dir, exist_ok=True)
+        print(f"\n=== {sname} ({vname}) -> {out_dir}/ ===")
+        ok = fail = 0
+        for i, c in enumerate(LETTERS, 1):
+            out_path = os.path.join(out_dir, f"letter_{c}.wav")
+            try:
+                audio = azure_tts(c, vname, region_url, key)
+                with open(out_path, "wb") as f:
+                    f.write(audio)
+                ok += 1
+                total_ok += 1
+                print(f"  [{i:>2}/{len(LETTERS)}] OK   {c}", flush=True)
+            except Exception as e:  # noqa: BLE001
+                fail += 1
+                total_fail += 1
+                print(f"  [{i:>2}/{len(LETTERS)}] FAIL {c}: {e}", flush=True)
+        print(f"  {sname} 完成: {ok} 成功 / {fail} 失败")
+
+    print("\n" + "=" * 60)
+    print(f"全部完成：{total_ok} 成功 / {total_fail} 失败")
+    print(f"输出目录：{OUT_BASE}/")
+    print("=" * 60)
+
+
+if __name__ == "__main__":
+    main()
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
 OpenAI TTS 26 字母生成 - GitHub Actions 版
 ==========================================
 
