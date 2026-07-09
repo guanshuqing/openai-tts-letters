@@ -1,6 +1,101 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
+ElevenLabs TTS 26 字母生成 - GitHub Actions 版
+===============================================
+
+环境变量：
+    ELEVENLABS_API_KEY  - 必填，GitHub Secret 配置
+"""
+
+import os
+import requests
+from pathlib import Path
+
+LETTERS = list("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+
+# 8 个最匹配"播音员/主持人"风格的高音质音色
+VOICES = [
+    ("Daniel", "onwK4e9ZLuTAKqWW03F9", "letter_11labs_daniel"),    # ⭐⭐⭐⭐⭐ 新闻播音员
+    ("Adam",   "pNInz6obpgDQGcFmaJgB", "letter_11labs_adam"),      # ⭐⭐⭐⭐⭐ 权威男声
+    ("Brian",  "nPczCjzI2devNBz1zQrb", "letter_11labs_brian"),     # ⭐⭐⭐⭐  深沉共鸣
+    ("Chris",  "iP95p4xoKVk53GoZ742B", "letter_11labs_chris"),      # ⭐⭐⭐⭐  迷人男声
+    ("Alice",  "Xb7hH8MSUJpSbSDYk0k2", "letter_11labs_alice"),     # ⭐⭐⭐⭐  清晰教育
+    ("George", "JBFqnCBsd6RMkjVDRZzb", "letter_11labs_george"),    # ⭐⭐⭐⭐  温暖讲述者
+    ("Roger",  "CwhRBWXzGAHq8TQ4Fs17", "letter_11labs_roger"),     # ⭐⭐⭐⭐  沉稳自然
+    ("Lily",   "pFZP5JQG7iQjIQuC4Bku", "letter_11labs_lily"),      # ⭐⭐⭐⭐  天鹅绒女声
+]
+
+OUT_BASE = "output"
+
+
+def elevenlabs_tts(voice_id: str, text: str, api_key: str) -> bytes:
+    url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
+    headers = {
+        "xi-api-key": api_key,
+        "Content-Type": "application/json",
+        "Accept": "audio/wav",
+    }
+    payload = {
+        "text": text,
+        "model_id": "eleven_multilingual_v2",
+        "voice_settings": {
+            "stability": 0.35,
+            "similarity_boost": 0.75,
+        },
+    }
+    r = requests.post(url, headers=headers, json=payload, timeout=60)
+    if r.status_code != 200:
+        raise RuntimeError(f"HTTP {r.status_code}: {r.text[:200]}")
+    if len(r.content) < 1000:
+        raise RuntimeError(f"Small audio ({len(r.content)} bytes)")
+    return r.content
+
+
+def main() -> None:
+    api_key = os.environ.get("ELEVENLABS_API_KEY", "")
+    if not api_key:
+        raise SystemExit("ERROR: ELEVENLABS_API_KEY env var not set")
+
+    print("=" * 60)
+    print("ElevenLabs TTS - 26 字母 × 8 顶级音色")
+    print(f"  Key: {api_key[:8]}...{api_key[-4:]}")
+    print(f"  Voices: {[v for v, _, _ in VOICES]}")
+    print(f"  Total: {len(LETTERS) * len(VOICES)} wav")
+    print("=" * 60)
+
+    total_ok = total_fail = 0
+    for sname, vid, dir_name in VOICES:
+        out_dir = os.path.join(OUT_BASE, dir_name)
+        os.makedirs(out_dir, exist_ok=True)
+        print(f"\n=== {sname} -> {out_dir}/ ===")
+        ok = fail = 0
+        for i, c in enumerate(LETTERS, 1):
+            out_path = os.path.join(out_dir, f"letter_{c}.wav")
+            try:
+                audio = elevenlabs_tts(vid, c, api_key)
+                with open(out_path, "wb") as f:
+                    f.write(audio)
+                ok += 1
+                total_ok += 1
+                print(f"  [{i:>2}/{len(LETTERS)}] OK   {c}", flush=True)
+            except Exception as e:  # noqa: BLE001
+                fail += 1
+                total_fail += 1
+                print(f"  [{i:>2}/{len(LETTERS)}] FAIL {c}: {e}", flush=True)
+        print(f"  {sname} 完成: {ok} 成功 / {fail} 失败")
+
+    print("\n" + "=" * 60)
+    print(f"全部完成：{total_ok} 成功 / {total_fail} 失败")
+    print(f"输出目录：{OUT_BASE}/")
+    print("=" * 60)
+
+
+if __name__ == "__main__":
+    main()
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
 Azure TTS 26 字母生成 - GitHub Actions 版
 ===========================================
 
